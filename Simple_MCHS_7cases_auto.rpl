@@ -1,0 +1,86 @@
+# ICEM CFD replay: automate 7 Simple_MCHS mesh/export cases
+# Cases generated:
+#   Without prism: 0.20, 0.15, 0.10
+#   With prism   : 0.25, 0.20, 0.15, 0.10
+# Existing case skipped: 0.25 without prism
+# Output names:
+#   fluent_MCHS_S_<size>.msh
+#   fluent_MCHS_S_<size>_P.msh
+
+proc run_case {gsize prism_on} {
+    set base_dir {E:/2D Simulation/Microchannel_Heat_Sink/CFD Model/Simple Channel}
+    set tin_file Simple_MCHS.tin
+    set fbc_file Simple_MCHS.fbc
+    set atr_file Simple_MCHS.atr
+    set uns_file Simple_MCHS.uns
+    set tetra_uns {E:/2D Simulation/Microchannel_Heat_Sink/CFD Model/Simple Channel/tetra_mesh.uns}
+    set fluent_exe {E:/Program Files/Ansys/ANSYS Inc/v170/icemcfd/win64_amd/icemcfd/output-interfaces/fluent6}
+
+    if {$prism_on} {
+        set out_prefix ${base_dir}/fluent_MCHS_S_${gsize}_P
+    } else {
+        set out_prefix ${base_dir}/fluent_MCHS_S_${gsize}
+    }
+
+    ic_chdir $base_dir
+    ic_load_tetin $tin_file
+    ic_geo_set_modified 0
+    ic_set_global geo_cad 0.01 toler
+
+    # Part dimensions from source replay
+    ic_boco_parts_dim BOTTOM_WALL
+    ic_boco_parts_dim FLUID
+    ic_boco_parts_dim GEOM
+    ic_boco_parts_dim INLET
+    ic_boco_parts_dim INSIDEWALL
+    ic_boco_parts_dim OUTLET
+    ic_boco_parts_dim SOLID
+    ic_boco_parts_dim TOPWALL
+
+    # Global mesh size
+    ic_undo_group_begin
+    ic_set_meshing_params global 0 gref 1.0 gmax $gsize gfast 0 gedgec 0.2 gnat 1.0 gcgap 1 gnatref 10 igwall 0
+    ic_undo_group_end
+
+    # Prism settings from source replay
+    if {$prism_on} {
+        ic_undo_group_begin
+        ic_set_meshing_params prism 0 law exponential layers 10 height 0.002 ratio 1.2 total_height 0.0519174 prism_height_limit 0 max_prism_height_ratio {} stair_step 1 auto_reduction 0 min_prism_quality 0.0099999998 max_prism_angle 180 fillet 0.1 tetra_smooth_limit 0.30000001 n_tetra_smoothing_steps 10 n_triangle_smoothing_steps 5
+        ic_set_meshing_params variable 0 tgrid_n_ortho_layers 0 tgrid_fix_first_layer 0 tgrid_gap_factor 0.5 tgrid_enhance_norm_comp 0 tgrid_enhance_offset_comp 0 tgrid_smoothing_level 1 tgrid_max_cap_skew 0.98 tgrid_max_cell_skew 0.90 tgrid_last_layer_aspect {} triangle_quality inscribed_area
+        ic_undo_group_end
+    }
+
+    # Core mesh generation
+    ic_undo_group_begin
+    ic_run_tetra $tin_file $tetra_uns run_cutter 1 delete_auto 1 run_smoother 0 fix_holes 1 n_processors 1 in_process 1 log ./tetra_cmd.log
+    ic_geo_set_modified 1
+    ic_uns_update_family_type visible {BOTTOM_WALL INSIDEWALL INLET FLUID GEOM OUTLET ORFN TOPWALL SOLID} {!NODE !LINE_2 TRI_3 !TETRA_4} update 0
+    ic_uns_diagnostic diag_type single quiet 1
+    ic_smooth_elements map all upto 0.4 iterations 5 fix_families {} n_processors 1 smooth TRI_3 float TETRA_4 laplace 1
+    ic_smooth_elements map all upto 0.4 iterations 5 prism_warp_weight 0.5 fix_families {} n_processors 1 smooth TETRA_4 float PENTA_6 freeze TRI_3
+    ic_smooth_elements map all upto 0.4 iterations 5 prism_warp_weight 0.5 fix_families {} metric Quality n_processors 1 smooth TETRA_4 smooth TRI_3 float PENTA_6
+    ic_delete_empty_parts
+    ic_undo_group_end
+
+    # Solver/export prep
+    ic_boco_solver {ANSYS Fluent}
+    ic_solution_set_solver {ANSYS Fluent} 1
+    ic_boco_save $fbc_file
+    ic_boco_save_atr $atr_file
+    ic_delete_empty_parts
+    ic_save_tetin $tin_file 0 0 {} {} 0 0 1
+    ic_uns_check_duplicate_numbers
+    ic_uns_renumber_all_elements 1 1
+    ic_save_unstruct $uns_file 1 {} {} {}
+    ic_uns_set_modified 1
+
+    # Export Fluent mesh
+    ic_exec $fluent_exe -dom ${base_dir}/$uns_file -b $fbc_file $out_prefix
+}
+
+# 7 cases requested
+run_case 0.08 0
+run_case 0.05 0
+run_case 0.03 0
+run_case 0.01 0
+
